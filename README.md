@@ -6,6 +6,6 @@ Dulovar is a self-directed academic project exploring modern web and backend tec
 - Go (Golang) for internal microservices using gRPC  
 - Rust for implementing peer-to-peer components  
 
-The project’s theme revolves around Interpol alerts.
+The project aims to recreate the concept of Interpol alerts, along with a simplified representation of related entities such as police stations, correctional facilities, and other institutional components.
 
 [www.dulovar.com](https://www.dulovar.com)
