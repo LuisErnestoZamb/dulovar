@@ -1,14 +1,9 @@
-mod rest_requests;
-use rest_requests::RestRequestBuilder;
-fn main() {
-    let r = RestRequestBuilder::new()
-        .node_list(vec![1, 2, 3])
-        .is_sent_ip(true)
-        .build();
-    
-    match r.get_nodes() {
-        Ok(response) => println!("Response: {:#?}", response),
-        Err(e) => println!("Error: {:?}", e),
-    }
-}
+mod p2p_node;
+use p2p_node::P2pNode;
 
+
+fn main() {
+    
+    let _ = P2pNode::generate_end_point();
+
+}
