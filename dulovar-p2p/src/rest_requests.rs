@@ -1,20 +1,47 @@
-
 #[derive(Debug)]
 pub struct RestRequest {
-  node_list: Vec<String>,
-  has_submitted_hash_table: bool,
-  is_sent_ip: bool,
+    node_list: Vec<String>,
+    has_submitted_hash_table: bool,
+    is_sent_ip: bool,
 }
 
 impl RestRequest {
-  #[tokio::main]
-  pub async fn get_nodes(self) -> Result<(), reqwest::Error> {
-      let url = "https://register-node.dulovar.com/";
-      let response = reqwest::get(url).await?;
-      let body = response.text().await?;
-      println!("Response body: {}", body);
-      Ok(())
-  }
+    #[tokio::main]
+    pub async fn get_nodes(self) -> Result<(), reqwest::Error> {
+        let url = "https://register-node.dulovar.com/";
+        let response = reqwest::get(url).await?;
+        let body = response.text().await?;
+        println!("Response body: {}", body);
+        Ok(())
+    }
+
+    pub async fn get_public_ip() -> String {
+        let public_ip = match reqwest::get("https://api.ipify.org?format=text").await {
+            Ok(resp) if resp.status().is_success() => match resp.text().await {
+                Ok(t) => t.trim().to_string(),
+                Err(e) => {
+                    eprintln!("Failed to read ip body from api.ipify.org: {e}");
+                    String::from("unknown")
+                }
+            },
+            _ => match reqwest::get("https://ifconfig.co/ip").await {
+                Ok(resp) if resp.status().is_success() => {
+                    resp.text().await.unwrap_or_default().trim().to_string()
+                }
+                Ok(resp) => {
+                    eprintln!(
+                        "Fallback service returned non-success status: {}",
+                        resp.status()
+                    );
+                    String::from("unknown")
+                }
+                Err(e) => {
+                    eprintln!("Failed to contact public IP services: {e}");
+                    String::from("unknown")
+                }
+            },
+        };
+    }
 }
 
 pub struct RestRequestBuilder {

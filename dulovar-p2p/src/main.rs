@@ -1,9 +1,9 @@
-mod p2p_node;
-use p2p_node::P2pNode;
+mod p2p_kad;
+use p2p_kad::P2pKad;
+use std::error::Error;
 
-
-fn main() {
-    
-    let _ = P2pNode::generate_end_point();
-
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
+    let _ = P2pKad::init_kad().await?;
+    Ok(())
 }
