@@ -1,0 +1,6 @@
+name = "non-p2p-api"
+main = "build/index.js"
+compatibility_date = "2025-10-14"
+
+[build]
+command = "cargo install -q worker-build && worker-build --release"
