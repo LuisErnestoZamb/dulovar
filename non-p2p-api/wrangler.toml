@@ -4,3 +4,15 @@ compatibility_date = "2025-10-14"
 
 [build]
 command = "cargo install -q worker-build && worker-build --release"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "dulovar-nodes"
+database_id = "a83830b8-2a51-4006-8f05-a648fb6130b5"
+preview_database_id = "dulovar-local"
+
+[observability]
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+invocation_logs = true
