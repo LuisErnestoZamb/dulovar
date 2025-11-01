@@ -4,9 +4,17 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-reqwest = "0.12.23"
+reqwest = { version = "0.12.23", features = ["json"] }
+
 tokio = { version = "1.47.1", features = ["macros", "rt-multi-thread", "io-std"] }
 either = "1.12"
 futures = "0.3.30"
 libp2p = { version = "0.54", features = [ "tokio", "gossipsub", "dns", "identify", "kad", "macros", "noise", "ping", "pnet", "tcp", "websocket", "yamux"] }
 tracing-subscriber = { version = "0.3",  features = ["env-filter"] }
+serde_json = "1.0"
+serde = { version = "1.0.228", features = ["derive"] }
+
+[dev-dependencies]
+tokio-test = "0.4"
+mockall = "0.12"
+tempfile = "3.8"
