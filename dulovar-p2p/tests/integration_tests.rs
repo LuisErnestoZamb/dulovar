@@ -1,7 +1,7 @@
 use dulovar_p2p::p2p_kad::*;
 use libp2p::{Multiaddr, PeerId, multiaddr::Protocol};
 use std::{str::FromStr, time::Duration};
-use tokio::time::timeout;
+use tokio::{sync::mpsc, time::timeout};
 
 #[tokio::test]
 async fn test_multiaddr_parsing_comprehensive() {
@@ -81,8 +81,10 @@ async fn test_strip_peer_id_functionality() {
 #[tokio::test]
 async fn test_init_kad_timeout() {
     // Test that init_kad runs without panicking and times out as expected
-    let result = timeout(Duration::from_millis(100), crate::init_kad::init_kad()).await;
+    let (sender, receiver) = mpsc::unbounded_channel();
 
+    let p2p_kad = P2pKad::new(receiver);
+    let result = timeout(Duration::from_millis(100), p2p_kad.run()).await;
     // Should timeout since init_kad runs indefinitely
     assert!(result.is_err(), "init_kad should timeout in test");
 }

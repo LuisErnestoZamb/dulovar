@@ -1,10 +1,10 @@
 use futures::{Stream, StreamExt, stream};
+
 use std::pin::Pin;
-use tonic::{Request, Response, Status, transport::Server};
+use tonic::{Request, Response, Status};
 
 use crate::grpc_daemon::alert::{
-    AlertConfirmation, AlertRequestData,
-    alert_service_server::{AlertService, AlertServiceServer},
+    AlertConfirmation, AlertRequestData, alert_service_server::AlertService,
 };
 
 #[derive(Default)]
@@ -22,14 +22,13 @@ impl AlertService for AlertStreamer {
     ) -> Result<Response<Self::ProcessAndStreamStream>, Status> {
         let req_data = request.into_inner();
 
-        println!("--- gRPC Message ---");
+        println!("------ gRPC Message -------");
         println!(
             "{} {} (Type: {})",
             req_data.first_name, req_data.last_name, req_data.type_alert
         );
-        println!("------------------------------------------\n");
+        println!("------ gRPC Message end ---\n");
 
-        // Simulación de 5 pasos de confirmación
         let confirmation_messages = vec![
             AlertConfirmation {
                 confirmation_id: "CONF-001".into(),
@@ -37,25 +36,17 @@ impl AlertService for AlertStreamer {
             },
             AlertConfirmation {
                 confirmation_id: "CONF-002".into(),
-                status_message: "Transmited to Peers.".into(),
+                status_message: "Transmitted to Peers.".into(),
             },
         ];
 
-        let output_stream = stream::iter(confirmation_messages.into_iter().map(Ok)).boxed();
-
+        let output_stream = stream::iter(confirmation_messages.into_iter().map(Ok))
+            .inspect(|result| {
+                if let Ok(conf) = result {
+                    println!("-> Sending confirmation: {}", conf.status_message);
+                }
+            })
+            .boxed();
         Ok(Response::new(output_stream as Self::ProcessAndStreamStream))
     }
-}
-
-// Función para iniciar el servidor, que será llamada desde main.rs
-pub async fn run_server(addr: std::net::SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
-    let streamer = AlertStreamer::default();
-    println!("gRPC service running on: {}", addr);
-
-    Server::builder()
-        .add_service(AlertServiceServer::new(streamer))
-        .serve(addr)
-        .await?;
-
-    Ok(())
 }

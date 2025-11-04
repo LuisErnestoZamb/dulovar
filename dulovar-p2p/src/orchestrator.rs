@@ -1,41 +1,31 @@
+use dulovar_p2p::grpc_daemon::GrpcDaemon;
+use dulovar_p2p::p2p_kad::P2pKad;
 use std::error::Error;
 use tokio;
-
-use crate::grpc_daemon::alert_service::run_server;
-use crate::p2p_kad::init_kad;
+use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
 
 /// Runs the Kademlia P2P node and the gRPC server concurrently.
 pub async fn run_concurrent_services() -> Result<(), Box<dyn Error>> {
-    // ---  Setup (P2P Kademlia) ---
-    let task_a = async {
-        println!("Starting (P2P Kademlia)...");
-        init_kad::init_kad().await
-    };
+    // Create communication channel
+    let (sender, receiver) = mpsc::unbounded_channel();
 
-    // ---  Setup (gRPC Server) ---
-    let task_b = async {
+    // Crete instances
+    let grpc_daemon = GrpcDaemon::new(sender);
+    let p2p_kad = P2pKad::new(receiver);
+
+    let grpc_handle: JoinHandle<()> = tokio::spawn(async move {
         let addr = "[::1]:50051".parse().unwrap();
         println!("Starting (gRPC Server) on {}...", addr);
-        run_server(addr).await
-    };
+        let _ = grpc_daemon.run_server(addr).await;
+    });
 
-    // The tokio::join! macro runs both tasks in parallel and waits for them to finish.
-    let (res_a, res_b) = tokio::join!(task_a, task_b);
+    let p2p_handle = tokio::spawn(async move {
+        println!("Starting (P2P Kademlia)...");
+        let _ = p2p_kad.run().await;
+    });
 
-    // --- Error Handling ---
+    tokio::try_join!(grpc_handle, p2p_handle)?;
 
-    // Process  (Kademlia) result
-    match res_a {
-        Ok(_) => println!(" (Kademlia) finished successfully."),
-        Err(ref e) => eprintln!("Fatal error in  (Kademlia): {}", e),
-    }
-
-    // Process  (gRPC) result
-    match res_b {
-        Ok(_) => println!(" (gRPC) finished successfully."),
-        Err(ref e) => eprintln!("Fatal error in  (gRPC): {}", e),
-    }
-
-    // Return an error if any task failed.
-    res_a.and(res_b)
+    Ok(())
 }
