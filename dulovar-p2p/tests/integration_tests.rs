@@ -1,6 +1,6 @@
 use dulovar_p2p::p2p_kad::*;
 use libp2p::{Multiaddr, PeerId, multiaddr::Protocol};
-use std::{error::Error, str::FromStr, time::Duration};
+use std::{str::FromStr, time::Duration};
 use tokio::time::timeout;
 
 #[tokio::test]

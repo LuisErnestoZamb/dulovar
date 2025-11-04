@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package alert;
+
+// Message from JS
+message AlertRequestData {
+  string first_name = 1;
+  string last_name = 2;
+  string description = 3;
+  int32 yob = 4; // Year of Birth (Año de nacimiento)
+  string url_1 = 5;
+  string url_2 = 6;
+  string url_3 = 7;
+  string country = 8;
+  string type_alert = 9;
+  string name_alert = 10;
+}
+
+// Response from Rust
+message AlertConfirmation {
+  string confirmation_id = 1;
+  string status_message = 2;
+}
+
+// Definition of service
+service AlertService {
+  rpc ProcessAndStream(AlertRequestData) returns (stream AlertConfirmation);
+}

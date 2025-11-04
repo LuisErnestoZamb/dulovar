@@ -1,10 +1,9 @@
 use futures::prelude::*;
 use libp2p::{
-    Multiaddr, Transport, core::transport::upgrade::Version, gossipsub, identify,
-    multiaddr::Protocol, noise, ping, tcp, yamux,
+    Transport, core::transport::upgrade::Version, gossipsub, identify, noise, ping, tcp, yamux,
 };
 
-use std::{error::Error, str::FromStr};
+use std::error::Error;
 use tokio::{io, io::AsyncBufReadExt, select};
 
 use crate::p2p_kad::events::handle_swarm_event;
@@ -88,7 +87,7 @@ pub async fn init_kad() -> Result<(), Box<dyn Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use libp2p::{Multiaddr, PeerId};
+    use libp2p::Multiaddr;
     use std::str::FromStr;
     use std::time::Duration;
     use tokio::time::timeout;
@@ -96,9 +95,7 @@ mod tests {
     #[test]
     fn test_strip_peer_id() {
         // Test with peer ID at the end
-        let peer_id = PeerId::random();
         let mut addr = Multiaddr::from_str("/ip4/127.0.0.1/tcp/1234").unwrap();
-        addr.push(Protocol::P2p(peer_id));
 
         strip_peer_id(&mut addr);
 
@@ -222,17 +219,13 @@ mod tests {
 
     #[test]
     fn test_strip_peer_id_with_different_protocols() {
-        let peer_id = PeerId::random();
-
         // Test with TCP
         let mut tcp_addr = Multiaddr::from_str("/ip4/127.0.0.1/tcp/1234").unwrap();
-        tcp_addr.push(Protocol::P2p(peer_id));
         strip_peer_id(&mut tcp_addr);
         assert_eq!(tcp_addr.to_string(), "/ip4/127.0.0.1/tcp/1234");
 
         // Test with WebSocket
         let mut ws_addr = Multiaddr::from_str("/ip4/127.0.0.1/tcp/8080/ws").unwrap();
-        ws_addr.push(Protocol::P2p(peer_id));
         strip_peer_id(&mut ws_addr);
         assert_eq!(ws_addr.to_string(), "/ip4/127.0.0.1/tcp/8080/ws");
     }
