@@ -1,3 +1,4 @@
+pub mod event_loop;
 pub mod events;
 pub mod my_behaviour;
 pub mod p2p_kad_utils;
@@ -5,15 +6,14 @@ pub mod rest_request;
 
 use tokio::sync::mpsc;
 
-use futures::prelude::*;
 use libp2p::{
     Transport, core::transport::upgrade::Version, gossipsub, identify, noise, ping, tcp, yamux,
 };
 
 use std::error::Error;
-use tokio::{io, io::AsyncBufReadExt, select};
+use tokio::{io, io::AsyncBufReadExt};
 
-use crate::p2p_kad::events::handle_swarm_event;
+use crate::p2p_kad::event_loop::event_loop;
 use crate::p2p_kad::my_behaviour::MyBehaviour;
 use crate::p2p_kad::p2p_kad_utils::*;
 use crate::p2p_kad::rest_request::RestRequest;
@@ -83,22 +83,7 @@ impl P2pKad {
         // Listen on all interfaces and whatever port the OS assigns
         swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
 
-        loop {
-            select! {
-                Ok(Some(line)) = stdin.next_line() => {
-                    if let Err(e) = swarm
-                        .behaviour_mut()
-                        .gossipsub
-                        .publish(gossipsub_topic.clone(), line.as_bytes())
-                    {
-                        println!("Publish error: {e:?}");
-                    }
-                },
-                event = swarm.select_next_some() => {
-                    handle_swarm_event(event).await;
-                },
-            }
-        }
+        event_loop(&mut self.receiver, &mut swarm, gossipsub_topic).await
     }
 }
 

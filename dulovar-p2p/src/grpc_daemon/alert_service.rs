@@ -1,14 +1,21 @@
 use futures::{Stream, StreamExt, stream};
-
 use std::pin::Pin;
+use tokio::sync::mpsc;
 use tonic::{Request, Response, Status};
 
 use crate::grpc_daemon::alert::{
     AlertConfirmation, AlertRequestData, alert_service_server::AlertService,
 };
 
-#[derive(Default)]
-pub struct AlertStreamer;
+pub struct AlertStreamer {
+    sender: mpsc::UnboundedSender<String>,
+}
+
+impl AlertStreamer {
+    pub fn new(sender: mpsc::UnboundedSender<String>) -> Self {
+        Self { sender }
+    }
+}
 
 type AlertStream = Pin<Box<dyn Stream<Item = Result<AlertConfirmation, Status>> + Send + 'static>>;
 
@@ -21,6 +28,11 @@ impl AlertService for AlertStreamer {
         request: Request<AlertRequestData>,
     ) -> Result<Response<Self::ProcessAndStreamStream>, Status> {
         let req_data = request.into_inner();
+
+        // Send data through channel
+        if let Err(e) = self.sender.send(req_data.type_alert.to_string()) {
+            return Err(Status::internal("Failed to process request"));
+        }
 
         println!("------ gRPC Message -------");
         println!(

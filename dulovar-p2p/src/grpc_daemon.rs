@@ -20,7 +20,8 @@ impl GrpcDaemon {
         &self,
         addr: std::net::SocketAddr,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let streamer = AlertStreamer::default();
+        let streamer = AlertStreamer::new(self.sender.clone());
+
         println!("gRPC service running on: {}", addr);
 
         Server::builder()
