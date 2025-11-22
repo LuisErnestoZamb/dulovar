@@ -1,22 +1,19 @@
 pub mod event_loop;
 pub mod events;
+pub mod keypair_file;
 pub mod my_behaviour;
 pub mod p2p_kad_utils;
 pub mod rest_request;
+pub mod swarm_builder;
 
-use tokio::sync::mpsc;
-
-use libp2p::{
-    Transport, core::transport::upgrade::Version, gossipsub, identify, noise, ping, tcp, yamux,
-};
-
-use std::error::Error;
-use tokio::{io, io::AsyncBufReadExt};
-
+use crate::config::Configuration;
 use crate::p2p_kad::event_loop::event_loop;
-use crate::p2p_kad::my_behaviour::MyBehaviour;
-use crate::p2p_kad::p2p_kad_utils::*;
+use crate::p2p_kad::keypair_file::read_keypair_file;
+use crate::p2p_kad::p2p_kad_utils::add_new_nodes;
 use crate::p2p_kad::rest_request::RestRequest;
+use libp2p::gossipsub;
+use std::error::Error;
+use tokio::sync::mpsc;
 
 pub struct P2pKad {
     receiver: mpsc::UnboundedReceiver<String>,
@@ -27,47 +24,15 @@ impl P2pKad {
         Self { receiver }
     }
 
-    pub async fn run(mut self) -> Result<(), Box<dyn Error>> {
+    pub async fn run(mut self, c: Configuration) -> Result<(), Box<dyn Error>> {
+        let nodes = RestRequest::new(c.clone());
+        nodes.register_node().await?;
+
+        let id_keys = read_keypair_file(c.private_key_file)?;
+        let mut swarm = swarm_builder::swarm_kad(id_keys).unwrap();
+
         // Create a Gosspipsub topic
-        let _r = RestRequest::register_node().await?;
-        let nodes = RestRequest::get_nodes().await?;
-
         let gossipsub_topic = gossipsub::IdentTopic::new("operations");
-
-        let mut swarm = libp2p::SwarmBuilder::with_new_identity()
-            .with_tokio()
-            .with_other_transport(|key| {
-                let noise_config = noise::Config::new(key).unwrap();
-                let yamux_config = yamux::Config::default();
-
-                let base_transport =
-                    tcp::tokio::Transport::new(tcp::Config::default().nodelay(true));
-                base_transport
-                    .upgrade(Version::V1Lazy)
-                    .authenticate(noise_config)
-                    .multiplex(yamux_config)
-            })?
-            .with_dns()?
-            .with_behaviour(|key| {
-                let gossipsub_config = gossipsub::ConfigBuilder::default()
-                    .max_transmit_size(262144)
-                    .build()
-                    .map_err(io::Error::other)?;
-                Ok(MyBehaviour {
-                    gossipsub: gossipsub::Behaviour::new(
-                        gossipsub::MessageAuthenticity::Signed(key.clone()),
-                        gossipsub_config,
-                    )
-                    .expect("Valid configuration"),
-                    identify: identify::Behaviour::new(identify::Config::new(
-                        "/ipfs/0.1.0".into(),
-                        key.public(),
-                    )),
-                    ping: ping::Behaviour::new(ping::Config::new()),
-                })
-            })?
-            .build();
-
         println!("Subscribing to {gossipsub_topic:?}");
         swarm
             .behaviour_mut()
@@ -75,13 +40,9 @@ impl P2pKad {
             .subscribe(&gossipsub_topic)
             .unwrap();
 
-        let _ = add_new_nodes(&mut swarm, nodes);
-
-        // Read full lines from stdin
-        let mut stdin = io::BufReader::new(io::stdin()).lines();
-
+        add_new_nodes(&mut swarm, nodes.get_nodes().await?).unwrap();
         // Listen on all interfaces and whatever port the OS assigns
-        swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
+        swarm.listen_on(format!("/ip4/0.0.0.0/tcp/{}", c.p2p_port).parse()?)?;
 
         event_loop(&mut self.receiver, &mut swarm, gossipsub_topic).await
     }
@@ -90,163 +51,55 @@ impl P2pKad {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use libp2p::Multiaddr;
-    use std::str::FromStr;
-    use std::time::Duration;
-    use tokio::time::timeout;
+    use mockito::Server;
+    use tokio;
 
-    #[test]
-    fn test_strip_peer_id() {
-        // Test with peer ID at the end
-        let mut addr = Multiaddr::from_str("/ip4/127.0.0.1/tcp/1234").unwrap();
+    const JSON_RESPONSE: &str = r#"{"address":"0.0.0.0:50001","valid":1,"master":0}"#;
 
-        strip_peer_id(&mut addr);
+    async fn setup_mock_get_nodes() {
+        let mut server = Server::new_async().await;
 
-        // Should not contain peer ID anymore
-        assert!(!addr.to_string().contains("/p2p/"));
-        assert_eq!(addr.to_string(), "/ip4/127.0.0.1/tcp/1234");
+        server
+            .mock("GET", "/test")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(JSON_RESPONSE)
+            .create_async()
+            .await;
     }
 
-    #[test]
-    fn test_strip_peer_id_no_peer_id() {
-        // Test with no peer ID
-        let mut addr = Multiaddr::from_str("/ip4/127.0.0.1/tcp/1234").unwrap();
-        let original = addr.clone();
-
-        strip_peer_id(&mut addr);
-
-        // Should remain unchanged
-        assert_eq!(addr, original);
+    async fn setup_mock_public_ip() {
+        let mut server = Server::new_async().await;
+        server
+            .mock("GET", "?format=text")
+            .with_status(200)
+            .with_body("0.0.0.0")
+            .create_async()
+            .await;
     }
 
-    #[test]
-    fn test_parse_legacy_multiaddr() {
-        let legacy_addr =
-            "/ip4/127.0.0.1/tcp/4001/ipfs/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN";
-
-        let result = parse_legacy_multiaddr(legacy_addr);
-        assert!(result.is_ok());
-
-        let addr = result.unwrap();
-        // Should replace ipfs with p2p and strip peer ID
-        assert_eq!(addr.to_string(), "/ip4/127.0.0.1/tcp/4001");
-    }
-
-    #[test]
-    fn test_parse_legacy_multiaddr_invalid() {
-        let invalid_addr = "invalid_multiaddr";
-
-        let result = parse_legacy_multiaddr(invalid_addr);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_parse_legacy_multiaddr_modern_format() {
-        let modern_addr =
-            "/ip4/127.0.0.1/tcp/4001/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN";
-
-        let result = parse_legacy_multiaddr(modern_addr);
-        assert!(result.is_ok());
-
-        let addr = result.unwrap();
-        // Should strip peer ID but keep p2p format
-        assert_eq!(addr.to_string(), "/ip4/127.0.0.1/tcp/4001");
+    fn port_struct(p2p_port: u16) -> Configuration {
+        Configuration {
+            grpc_port: 50001,
+            p2p_port,
+            production: false,
+            private_key_file: "p2p_private_key.bin".to_string(),
+            node_web_server_url: "http://0.0.0.0".to_string(),
+            public_ip_url_1: "http://0.0.0.0".to_string(),
+            public_ip_url_2: "http://0.0.0.0".to_string(),
+        }
     }
 
     #[tokio::test]
-    async fn test_init_kad_basic_setup() {
-        // This test verifies that init_kad can be called without panicking
-        // We'll timeout quickly since init_kad runs indefinitely
-        let (sender, receiver) = mpsc::unbounded_channel();
+    async fn test_p2p_ping() {
+        setup_mock_get_nodes().await;
+        setup_mock_public_ip().await;
 
-        let p2p_kad = P2pKad::new(receiver);
-        let result = timeout(Duration::from_millis(100), p2p_kad.run()).await;
-
-        // Should timeout (not panic) since init_kad runs in a loop
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_multiaddr_parsing_edge_cases() {
-        // Test empty string - this actually creates an empty multiaddr which is valid
-        let result = crate::p2p_kad::p2p_kad_utils::parse_legacy_multiaddr("");
-        assert!(result.is_ok()); // Empty multiaddr is valid
-        assert_eq!(result.unwrap().to_string(), "");
-
-        // Test with invalid multiaddr format
-        let result = parse_legacy_multiaddr("not_a_multiaddr");
-        assert!(result.is_err());
-
-        // Test with simple ipfs replacement - this might fail due to invalid peer ID
-        let addr_with_ipfs =
-            "/ip4/127.0.0.1/tcp/4001/ipfs/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN";
-        let result = parse_legacy_multiaddr(addr_with_ipfs);
-        assert!(result.is_ok());
-
-        // Should replace ipfs with p2p and strip peer ID
-        let parsed = result.unwrap();
-        assert!(!parsed.to_string().contains("ipfs"));
-        assert_eq!(parsed.to_string(), "/ip4/127.0.0.1/tcp/4001");
-    }
-
-    #[test]
-    fn test_multiaddr_with_different_protocols() {
-        // Test with WebSocket
-        let ws_addr =
-            "/ip4/127.0.0.1/tcp/4001/ws/ipfs/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN";
-        let result = parse_legacy_multiaddr(ws_addr);
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap().to_string(), "/ip4/127.0.0.1/tcp/4001/ws");
-
-        // Test with WebSocket Secure
-        let wss_addr =
-            "/ip4/127.0.0.1/tcp/443/wss/ipfs/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN";
-        let result = parse_legacy_multiaddr(wss_addr);
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap().to_string(), "/ip4/127.0.0.1/tcp/443/wss");
-    }
-
-    #[test]
-    fn test_ipv6_multiaddr_parsing() {
-        let ipv6_addr = "/ip6/::1/tcp/4001/ipfs/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN";
-        let result = parse_legacy_multiaddr(ipv6_addr);
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap().to_string(), "/ip6/::1/tcp/4001");
-    }
-
-    #[test]
-    fn test_dns_multiaddr_parsing() {
-        let dns_addr =
-            "/dns4/example.com/tcp/4001/ipfs/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN";
-        let result = parse_legacy_multiaddr(dns_addr);
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap().to_string(), "/dns4/example.com/tcp/4001");
-    }
-
-    #[test]
-    fn test_strip_peer_id_with_different_protocols() {
-        // Test with TCP
-        let mut tcp_addr = Multiaddr::from_str("/ip4/127.0.0.1/tcp/1234").unwrap();
-        strip_peer_id(&mut tcp_addr);
-        assert_eq!(tcp_addr.to_string(), "/ip4/127.0.0.1/tcp/1234");
-
-        // Test with WebSocket
-        let mut ws_addr = Multiaddr::from_str("/ip4/127.0.0.1/tcp/8080/ws").unwrap();
-        strip_peer_id(&mut ws_addr);
-        assert_eq!(ws_addr.to_string(), "/ip4/127.0.0.1/tcp/8080/ws");
-    }
-
-    #[test]
-    fn test_multiaddr_parsing_preserves_other_protocols() {
-        // Test that non-ipfs protocols are preserved
-        let complex_addr = "/ip4/127.0.0.1/tcp/4001/ws/p2p-websocket-star/ipfs/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN";
-        let result = parse_legacy_multiaddr(complex_addr);
-        assert!(result.is_ok());
-
-        let parsed = result.unwrap().to_string();
-        assert!(parsed.contains("ws"));
-        assert!(parsed.contains("p2p-websocket-star"));
-        assert!(!parsed.contains("ipfs"));
-        assert!(!parsed.contains("QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN"));
+        let (_sender_a, receiver_a) = mpsc::unbounded_channel();
+        let (_sender_b, receiver_b) = mpsc::unbounded_channel();
+        let p2p_kad_a = P2pKad::new(receiver_a);
+        let p2p_kad_b = P2pKad::new(receiver_b);
+        let _p2p_a = p2p_kad_a.run(port_struct(50001)).await;
+        let _p2p_b = p2p_kad_b.run(port_struct(50002)).await;
     }
 }

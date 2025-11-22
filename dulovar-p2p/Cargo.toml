@@ -12,6 +12,7 @@ futures = "0.3.30"
 libp2p = { version = "0.54", features = [ "tokio", "gossipsub", "dns", "identify", "kad", "macros", "noise", "ping", "pnet", "tcp", "websocket", "yamux"] }
 tracing-subscriber = { version = "0.3",  features = ["env-filter"] }
 serde_json = "1.0"
+serde_yaml = "0.9"
 serde = { version = "1.0.228", features = ["derive"] }
 tonic = "0.14.2"
 prost = "0.14.1"
@@ -22,6 +23,7 @@ diesel = { version = "2.2.0", features = ["sqlite", "returning_clauses_for_sqlit
 tokio-test = "0.4"
 mockall = "0.12"
 tempfile = "3.8"
+mockito = "1.7.0"
 
 [build-dependencies]
 tonic-prost-build ="0.14.2"

@@ -1,0 +1,7 @@
+grpc_port: 50001
+p2p_port: 62022
+production: false
+private_key_file: p2p_private_key.bin
+node_web_server_url: https://api.dulovar.com/nodes
+public_ip_url_1: https://api.ipify.org?format=text
+public_ip_url_2: https://ifconfig.co/ip

@@ -31,7 +31,7 @@ impl AlertService for AlertStreamer {
 
         // Send data through channel
         if let Err(e) = self.sender.send(req_data.type_alert.to_string()) {
-            return Err(Status::internal("Failed to process request"));
+            return Err(Status::internal(format!("Failed to process request{}", e)));
         }
 
         println!("------ gRPC Message -------");

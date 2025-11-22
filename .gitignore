@@ -23,3 +23,4 @@ tmp
 dulovar-police-station/main
 dulovar-p2p/.idea
 .env
+p2p_private_key.bin
